@@ -14,6 +14,8 @@ def process_image(image):
         landmarks = get_face_landmarks(gray, faces[0])
         right_eye_points = landmarks[36:42]
         left_eye_points = landmarks[42:48]
+        right_pupile = None
+        left_pupile = None
 
         if draw_faces:
             for face in face_rects:
@@ -33,34 +35,39 @@ def process_image(image):
         left_eye_region, left_top_left, left_bottom_right = crop_eye(gray, left_eye_points)
 
         if right_blink_ratio > 0.20:
-
             right_pupile = pupile_detector(right_eye_region)
             print("Right Pupile: ", right_pupile)
 
-            if right_pupile is not None:
-                
-                rcx, rcy, rr = right_pupile
-                rcx += right_top_left[0]
-                rcy += right_top_left[1]
+        if draw_pupile and right_blink_ratio > 0:
+            right_blink_ratio = round(right_blink_ratio, 3)
+            cv.putText(image, "R BR: " + str(right_blink_ratio), (10, 60), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-                if draw_pupile:
-                    cv.circle(image, (rcx, rcy), rr, (0, 255, 0), 2)
+        if right_pupile is not None:
+            
+            rcx, rcy, rr = right_pupile
+            rcx += right_top_left[0]
+            rcy += right_top_left[1]
+
+            if draw_pupile:
+                cv.circle(image, (rcx, rcy), rr, (0, 255, 0), 2)
 
         if left_blink_ratio > 0.20:
-
             left_pupile = pupile_detector(left_eye_region)
             print("Left Pupile: ", left_pupile)
 
-            if left_pupile is not None:
-                lcx, lcy, lr = left_pupile
-                lcx += left_top_left[0]
-                lcy += left_top_left[1]
+        if draw_pupile and left_blink_ratio > 0:
+            left_blink_ratio = round(left_blink_ratio, 3)
+            cv.putText(image, "L BR: " + str(left_blink_ratio), (10, 90), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-                if draw_pupile:
-                    cv.circle(image, (lcx, lcy), lr, (0, 255, 0), 2)
+        if left_pupile is not None:
+            lcx, lcy, lr = left_pupile
+            lcx += left_top_left[0]
+            lcy += left_top_left[1]
 
-    cv.imshow("Image", image)
-    cv.waitKey(0)
+            if draw_pupile:
+                cv.circle(image, (lcx, lcy), lr, (0, 255, 0), 2)
+
+    return image
 
 def video_execution():
 
@@ -85,21 +92,27 @@ def video_execution():
 
         if not ret: break
 
-        process_image(frame)
+        frame = process_image(frame)
 
         next_time = time.time()
         fps = 1 / (next_time - prev_time)
         prev_time = next_time
 
-        cv.putText(frame, "FPS: " + str(round(fps, 2)), (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv.imshow("Camera", frame)
+        cv.putText(frame, "FPS: " + str(int(fps)), (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv.imshow("Frame", frame)
+
+        if cv.waitKey(1) & 0xFF == ord("q"): break
 
     camera.release()
     cv.destroyAllWindows()
 
 def image_execution(image_path):
+
     image = cv.imread(image_path)
     process_image(image)
+
+    cv.imshow("Image", image)
+    cv.waitKey(0)
     
 if __name__ == "__main__":
     

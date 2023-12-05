@@ -90,4 +90,5 @@ def pupile_detector(image):
     # Approximate radius
     radius = (w + h) // 4
 
+    if radius < 1.5: return None
     return (cx, cy, radius)
