@@ -2,7 +2,11 @@ import cv2 as cv
 import numpy as np
 import dlib
 import os
-from utils import mid_point, distance, angle
+import time
+import threading
+from datetime import datetime
+from util.settings import get_calibration, save_calibration
+from util.math import mid_point, distance
 
 if not os.path.exists("models/shape_predictor_68_face_landmarks.dat"):
     print("Downloading shape_predictor_68_face_landmarks.dat...")
@@ -14,81 +18,182 @@ if not os.path.exists("models/shape_predictor_68_face_landmarks.dat"):
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor("models/shape_predictor_68_face_landmarks.dat")
 
-def get_faces(image):
+class PupileDetector:
 
-    faces = detector(image, 1)
-    if len(faces) == 0: return (None, None)
+    frame = None
 
-    faces_rects = []
+    def __init__(self):
+        self.capture_frames()
 
-    for face in faces:
-        top_left = (face.left(), face.top())
-        bottom_right = (face.right(), face.bottom())
-        faces_rects.append((top_left, bottom_right))
+    def capture_frames(self):
 
-    return (faces_rects, faces)
+        def capture_frames_thread():
+      
+            cap = cv.VideoCapture(0)
+            
+            while True:
+                _, frame = cap.read()
+                self.frame = frame
+                if cv.waitKey(1) == ord('q'): break
 
-def get_face_landmarks(image, face):
-    landmarks = predictor(image, face)
-    landmarks_points = [ (landmarks.part(i).x, landmarks.part(i).y) for i in range(0, 68) ]
-    return landmarks_points
+        threading.Thread(target=capture_frames_thread, daemon=True).start()
 
-def detect_blink(eye_points):
+    def get_faces(self):
+        
+        self.process_frame = self.frame.copy()
+        self.process_frame_gray = cv.cvtColor(self.process_frame, cv.COLOR_BGR2GRAY)
+        faces = detector(self.process_frame_gray, 1)
+        if len(faces) == 0: return (None, None)
 
-    A = distance(eye_points[1], eye_points[5])
-    B = distance(eye_points[2], eye_points[4])
-    C = distance(eye_points[0], eye_points[3])
+        faces_rects = []
 
-    # Eye aspect ratio
-    ear = (A + B) / (2.0 * C)
-    return ear
+        for face in faces:
+            top_left = (face.left(), face.top())
+            bottom_right = (face.right(), face.bottom())
+            faces_rects.append((top_left, bottom_right))
 
-    top = eye_points[1 : 3]
-    bottom = eye_points[4 : 6]
+        return (faces_rects, faces)
+    
+    def get_face_landmarks(self, face):
+        landmarks = predictor(self.process_frame_gray, face)
+        landmarks_points = [ (landmarks.part(i).x, landmarks.part(i).y) for i in range(0, 68) ]
+        return landmarks_points
+    
+    def detect_blink(self, eye_points):
 
-    top_mid = mid_point(top[0], top[1])
-    bottom_mid = mid_point(bottom[0], bottom[1])
+        A = distance(eye_points[1], eye_points[5])
+        B = distance(eye_points[2], eye_points[4])
+        C = distance(eye_points[0], eye_points[3])
 
-    vertical_distance = distance(top_mid, bottom_mid)
-    horizontal_distance = distance(eye_points[0], eye_points[3])
+        # Eye aspect ratio
+        ear = (A + B) / (2.0 * C)
+        return ear
 
-    blink_ratio = horizontal_distance / vertical_distance
+        top = eye_points[1 : 3]
+        bottom = eye_points[4 : 6]
 
-    return blink_ratio
+        top_mid = mid_point(top[0], top[1])
+        bottom_mid = mid_point(bottom[0], bottom[1])
 
-def crop_eye(image, eye_points):
-    x1, y1 = np.amin(eye_points, axis = 0)
-    x2, y2 = np.amax(eye_points, axis = 0)
-    return image[y1 : y2, x1 : x2], (x1, y1), (x2, y2)
+        vertical_distance = distance(top_mid, bottom_mid)
+        horizontal_distance = distance(eye_points[0], eye_points[3])
 
-def pupile_detector(image):
+        blink_ratio = horizontal_distance / vertical_distance
 
-    # Remove brightness
-    image = cv.equalizeHist(image)
+        return blink_ratio
+    
+    def crop_eye(self, eye_points):
+        x1, y1 = np.amin(eye_points, axis = 0)
+        x2, y2 = np.amax(eye_points, axis = 0)
+        return self.process_frame_gray[y1 : y2, x1 : x2], (x1, y1), (x2, y2)
 
-    _, threshold = cv.threshold(image, 70, 255, cv.THRESH_BINARY)
-    threshold = cv.erode(threshold, None, iterations = 2)
-    threshold = cv.dilate(threshold, None, iterations = 4)
-    threshold = cv.medianBlur(threshold, 3)
-    threshold = cv.bitwise_not(threshold)
+    def get_pupile(self, region_image):
 
-    # Find contours
-    contours, _ = cv.findContours(threshold, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        # Remove brightness
+        image = cv.equalizeHist(region_image)
 
-    # Find the biggest contour
-    if len(contours) == 0: return None
+        _, threshold = cv.threshold(image, 70, 255, cv.THRESH_BINARY)
+        threshold = cv.erode(threshold, None, iterations = 2)
+        threshold = cv.dilate(threshold, None, iterations = 4)
+        threshold = cv.medianBlur(threshold, 3)
+        threshold = cv.bitwise_not(threshold)
 
-    contour = max(contours, key = cv.contourArea)
+        # Find contours
+        contours, _ = cv.findContours(threshold, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
-    # Bounding box
-    x, y, w, h = cv.boundingRect(contour)
+        # Find the biggest contour
+        if len(contours) == 0: return None
 
-    # Center
-    cx = x + w // 2
-    cy = y + h // 2
+        contour = max(contours, key = cv.contourArea)
 
-    # Approximate radius
-    radius = (w + h) // 4
+        # Bounding box
+        x, y, w, h = cv.boundingRect(contour)
 
-    if radius < 1.5: return None
-    return (cx, cy, radius)
+        # Center
+        cx = x + w // 2
+        cy = y + h // 2
+
+        # Approximate radius
+        radius = (w + h) // 4
+
+        if radius < 1.5: return None
+        return (cx, cy, radius)
+
+    def process_pupile(self):
+
+        start_date = None
+
+        while True:
+
+            calibration_data = get_calibration()
+            if self.frame is None: continue
+
+            _, faces = self.get_faces()
+
+            if faces is not None:
+
+                landmarks = self.get_face_landmarks(faces[0])
+                right_eye_points = landmarks[36:42]
+                left_eye_points = landmarks[42:48]
+
+                right_blink_ratio = self.detect_blink(right_eye_points)
+                left_blink_ratio = self.detect_blink(left_eye_points)
+
+                if "rbr_max" in calibration_data: calibration_data["rbr_max"] = max(calibration_data["rbr_max"], right_blink_ratio)
+                else: calibration_data["rbr_max"] = right_blink_ratio
+
+                if "rbr_min" in calibration_data: calibration_data["rbr_min"] = min(calibration_data["rbr_min"], right_blink_ratio)
+                else: calibration_data["rbr_min"] = right_blink_ratio
+
+                if "lbr_max" in calibration_data: calibration_data["lbr_max"] = max(calibration_data["lbr_max"], left_blink_ratio)
+                else: calibration_data["lbr_max"] = left_blink_ratio
+
+                if "lbr_min" in calibration_data: calibration_data["lbr_min"] = min(calibration_data["lbr_min"], left_blink_ratio)
+                else: calibration_data["lbr_min"] = left_blink_ratio
+
+                save_calibration(calibration_data)
+
+                right_blink_ratio = (right_blink_ratio - calibration_data["rbr_min"]) / (calibration_data["rbr_max"] - calibration_data["rbr_min"])
+                left_blink_ratio = (left_blink_ratio - calibration_data["lbr_min"]) / (calibration_data["lbr_max"] - calibration_data["lbr_min"])
+
+                right_pupile = None
+                if right_blink_ratio > 0.20:
+                    right_eye_region, right_top_left, right_bottom_right = self.crop_eye(right_eye_points)
+                    right_pupile = self.get_pupile(right_eye_region)
+
+                left_pupile = None
+                if left_blink_ratio > 0.20:
+                    left_eye_region, left_top_left, left_bottom_right = self.crop_eye(left_eye_points)
+                    left_pupile = self.get_pupile(left_eye_region)
+
+                if right_pupile is None and left_pupile is None:
+                    start_date = datetime.now()
+
+                if right_pupile is not None and left_pupile is not None and start_date is not None:
+                    
+                    if (datetime.now() - start_date).seconds > 1.5:
+                        
+                        rcx, rcy, rr = right_pupile
+                        lcx, lcy, lr = left_pupile
+
+                        rcx += right_top_left[0]
+                        rcy += right_top_left[1]
+
+                        lcx += left_top_left[0]
+                        lcy += left_top_left[1]
+
+                        for point in landmarks:
+                            cv.circle(self.process_frame, point, 2, (0, 255, 0), -1)
+
+                        cv.circle(self.process_frame, (rcx, rcy), 5, (0, 0, 255), -1)
+                        cv.circle(self.process_frame, (lcx, lcy), 5, (0, 0, 255), -1)
+
+                        cv.imshow("Frame", self.process_frame)
+                        if cv.waitKey(1) == ord('q'): break
+                        
+                        yield (rcx, rcy), (lcx, lcy)
+
+            time.sleep(0.1)
+
+    def get_pupile_action(self):
+        yield next(self.process_pupile())

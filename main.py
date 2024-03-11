@@ -1,135 +1,67 @@
-import argparse
-import cv2 as cv
-import numpy as np
-import time
-from detectors.face_detector import get_faces, get_face_landmarks, detect_blink, crop_eye, pupile_detector
+import tkinter as tk
+from tkinter import font
+import threading
+from detectors.face_detector import PupileDetector
+from ui.menu import Menu
+from ui.calibration import Calibration
 
-def process_image(image):
+# Función para configurar y mover la ventana
 
-    gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-    face_rects, faces = get_faces(gray)
+# def show_calibration_screen():
 
-    if faces is not None:
+#     global ACTION_THREAD
+#     ACTION_THREAD.terminate()
 
-        landmarks = get_face_landmarks(gray, faces[0])
-        right_eye_points = landmarks[36:42]
-        left_eye_points = landmarks[42:48]
-        right_pupile = None
-        left_pupile = None
-
-        if draw_faces:
-            for face in face_rects:
-                cv.rectangle(image, face[0], face[1], (0, 255, 0), 2)
-
-        if draw_landmarks:
-            for landmark in landmarks:
-                cv.circle(image, landmark, 1, (0, 0, 255), 2)
-
-        right_blink_ratio = detect_blink(right_eye_points)
-        left_blink_ratio = detect_blink(left_eye_points)
-
-        print("Blink Ratio Right: ", right_blink_ratio)
-        print("Blink Ratio Left: ", left_blink_ratio)
-
-        right_eye_region, right_top_left, right_bottom_right = crop_eye(gray, right_eye_points)
-        left_eye_region, left_top_left, left_bottom_right = crop_eye(gray, left_eye_points)
-
-        if right_blink_ratio > 0.20:
-            right_pupile = pupile_detector(right_eye_region)
-            print("Right Pupile: ", right_pupile)
-
-        if draw_pupile and right_blink_ratio > 0:
-            right_blink_ratio = round(right_blink_ratio, 3)
-            cv.putText(image, "R BR: " + str(right_blink_ratio), (10, 60), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-        if right_pupile is not None:
-            
-            rcx, rcy, rr = right_pupile
-            rcx += right_top_left[0]
-            rcy += right_top_left[1]
-
-            if draw_pupile:
-                cv.circle(image, (rcx, rcy), rr, (0, 255, 0), 2)
-
-        if left_blink_ratio > 0.20:
-            left_pupile = pupile_detector(left_eye_region)
-            print("Left Pupile: ", left_pupile)
-
-        if draw_pupile and left_blink_ratio > 0:
-            left_blink_ratio = round(left_blink_ratio, 3)
-            cv.putText(image, "L BR: " + str(left_blink_ratio), (10, 90), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-        if left_pupile is not None:
-            lcx, lcy, lr = left_pupile
-            lcx += left_top_left[0]
-            lcy += left_top_left[1]
-
-            if draw_pupile:
-                cv.circle(image, (lcx, lcy), lr, (0, 255, 0), 2)
-
-    return image
-
-def video_execution():
-
-    frame_counter = 0
-    prev_time = 0
-    next_time = 0
-    fps = 0
-
-    camera = cv.VideoCapture(0)
-    camera_fps = camera.get(cv.CAP_PROP_FPS)
-    camera_width = camera.get(cv.CAP_PROP_FRAME_WIDTH)
-    camera_height = camera.get(cv.CAP_PROP_FRAME_HEIGHT)
-
-    print("FPS: ", camera_fps)
-    print("Width: ", camera_width)
-    print("Height: ", camera_height)
-
-    while True:
-
-        frame_counter += 1
-        ret, frame = camera.read()
-
-        if not ret: break
-
-        frame = process_image(frame)
-
-        next_time = time.time()
-        fps = 1 / (next_time - prev_time)
-        prev_time = next_time
-
-        cv.putText(frame, "FPS: " + str(int(fps)), (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv.imshow("Frame", frame)
-
-        if cv.waitKey(1) & 0xFF == ord("q"): break
-
-    camera.release()
-    cv.destroyAllWindows()
-
-def image_execution(image_path):
-
-    image = cv.imread(image_path)
-    process_image(image)
-
-    cv.imshow("Image", image)
-    cv.waitKey(0)
+#     close_button = tk.Button(calibration_window, text="X", command=lambda: close_calibration(calibration_window), bg='white')
+#     close_button.pack(anchor='ne', padx=5, pady=5)
     
+#     instruction_label = tk.Label(calibration_window, text="Oberva cada uno de los recuadros y parpadea.", bg='white', font=INSTRUCTION_FONT)
+#     instruction_label.pack(side='top', pady=10)
+    
+#     cal_frame = tk.Frame(calibration_window, bg='white')
+#     cal_frame.pack(expand=True, fill='both')
+
+#     for i in range(9):
+
+#         x = (i % 3) * (cal_width // 3)
+#         y = (i // 3) * (cal_height // 3)
+
+#         cx = x + cal_width // 6
+#         cy = y + cal_height // 6
+
+#         padding = 15
+#         label = tk.Label(cal_frame, text=str(i + 1), borderwidth=2, relief="solid", bg='black', fg='white', font=NUMBER_FONT, highlightbackground='gray', highlightthickness=4)
+#         label.place(x=x + padding, y=y + padding, width=cal_width // 3 - padding * 2, height=cal_height // 3 - padding * 2)
+
+#         right_pupile, left_pupile = next(pupile_detector.get_pupile_action())
+
+#         print(cx, cy, "vs", right_pupile, left_pupile)
+
+#         cal_frame.update_idletasks()
+
+
+class BlinkAssistant:
+
+    def __init__(self):
+        self.pupile_detector = PupileDetector()
+        self.pupile_callback = None
+
+    def run(self):
+        self.listen_pupile_action()
+        Menu(self).keep_alive()
+
+    def set_action_callback(self, callback):
+        self.pupile_callback = callback
+
+    def listen_pupile_action(self):
+        
+        def handle_callback():
+            while True:
+                right_pupile, left_pupile = next(self.pupile_detector.get_pupile_action())
+                if self.pupile_callback is not None:
+                    self.pupile_callback(right_pupile, left_pupile)
+
+        threading.Thread(target=handle_callback, daemon=True).start()
+
 if __name__ == "__main__":
-    
-    args = argparse.ArgumentParser()
-    args.add_argument("--draw-faces", action = "store_true", default=False)
-    args.add_argument("--draw-landmarks", action = "store_true", default=False)
-    args.add_argument("--draw-pupile", action = "store_true", default=False)
-    args.add_argument("--video", action="store_true", default=False)
-    args.add_argument("--image-path", type=str, default=None)
-
-    args = args.parse_args()
-
-    draw_faces = args.draw_faces
-    draw_landmarks = args.draw_landmarks
-    draw_pupile = args.draw_pupile
-    video = args.video
-    image_path = args.image_path
-
-    if video: video_execution()
-    if image_path is not None: image_execution(image_path)
+    BlinkAssistant().run()
