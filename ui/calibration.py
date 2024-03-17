@@ -5,15 +5,17 @@ import tkinter as tk
 from tkinter import font
 from ui.base.window import Window
 from ui.base.window import LOCATION
+from util.settings import save_calibration, get_calibration
 
 class Calibration(Window):
   
-    def __init__(self, APPLICATION):
+    def __init__(self, APPLICATION, parent = None):
         super().__init__(400, 400)
         self.APPLICATION = APPLICATION
         self.INSTRUCTION_FONT = font.Font(root=self.WINDOW, size=20, weight='bold')
         self.NUMBER_FONT = font.Font(root=self.WINDOW, size=18, weight='bold')
-
+        
+        self.parent = parent
         self.calibration_frame = None
         self.label = None
 
@@ -48,8 +50,10 @@ class Calibration(Window):
             self.label.destroy()
 
         if self.calibration_frame is None:
-            self.calibration_frame = tk.Frame(self.FRAME, bg='white')
+            self.calibration_frame = tk.Frame(self.FRAME, bg='black')
             self.calibration_frame.pack(expand=True, fill='both')
+
+        self.calibration_frame.update()
 
         panel_width = self.calibration_frame.winfo_width()
         panel_height = self.calibration_frame.winfo_height()
@@ -68,15 +72,34 @@ class Calibration(Window):
 
     def calibrate(self):
         self.show_calibration_step(self.calibration_data["step"])
-        self.APPLICATION.set_action_callback(self.handle_pupile_action)
+        self.register_callbacks()
 
-    def handle_pupile_action(self, right_pupile, left_pupile):
-        
+    def register_callbacks(self):
+        self.APPLICATION.set_blink_callback(self.handle_blink)
+        self.APPLICATION.set_fixation_callback(self.handle_fixation)
+
+    def handle_blink(self, right_pupile, left_pupile):
+
+        print("blink", right_pupile, left_pupile)
+
         if self.calibration_data["step"] < self.calibration_data["total_steps"]:
-            self.calibration_data["pupile_points"].append((right_pupile, left_pupile))
+
+            self.calibration_data["pupile_points"].append([right_pupile, left_pupile])
             self.calibration_data["step"] += 1
             self.show_calibration_step(self.calibration_data["step"])
+
         else:
-            print(self.calibration_data)
-            # self.save_calibration()
+
+            self.calibration_data["pupile_points"] = self.calibration_data["pupile_points"][:self.calibration_data["total_steps"]]
+            self.calibration_data["label_points"] = self.calibration_data["label_points"][:self.calibration_data["total_steps"]]
+
+            calibration_data = get_calibration()
+            calibration_data["pupile_points"] = self.calibration_data["pupile_points"]
+            calibration_data["label_points"] = self.calibration_data["label_points"]
+            save_calibration(calibration_data)
+
+            self.parent.register_callbacks()
             self.close()
+
+    def handle_fixation(self, right_pupile, left_pupile):
+        print("fixation", right_pupile, left_pupile)

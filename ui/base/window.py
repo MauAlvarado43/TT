@@ -63,7 +63,8 @@ class Window:
         self.WINDOW.update_idletasks()
 
     def close(self):
-        self.WINDOW.destroy()
+        try: self.WINDOW.destroy()
+        except: pass
 
     def hide(self):
         self.WINDOW.withdraw()

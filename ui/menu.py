@@ -1,6 +1,3 @@
-import win32api
-import win32con
-import win32gui
 import tkinter as tk
 from ui.calibration import Calibration
 from ui.base.window import Window
@@ -8,9 +5,11 @@ from ui.base.window import LOCATION
 
 class Menu(Window):
 
-    def __init__(self, APPLICATION):
+    def __init__(self, APPLICATION, parent = None):
         super().__init__(80, 720)
         self.APPLICATION = APPLICATION
+        self.parent = parent
+        self.register_callbacks()
         self.run()
 
     def run(self):
@@ -49,11 +48,17 @@ class Menu(Window):
         else: self.set_location(LOCATION.RIGHT)
 
     def show_calibration_screen(self):
-        Calibration(self.APPLICATION).keep_alive()
+        Calibration(self.APPLICATION, self).keep_alive()
     
     def close(self):
         exit()
 
-    def handle_pupile_action(self, right_pupile, left_pupile):
-        print(right_pupile, left_pupile)
-        pass
+    def register_callbacks(self):
+        self.APPLICATION.set_blink_callback(self.handle_blink)
+        self.APPLICATION.set_fixation_callback(self.handle_fixation)
+
+    def handle_blink(self, right_pupile, left_pupile):
+        print("blink", right_pupile, left_pupile)
+
+    def handle_fixation(self, right_pupile, left_pupile):
+        print("fixation", right_pupile, left_pupile)

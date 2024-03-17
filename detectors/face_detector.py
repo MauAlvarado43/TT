@@ -5,24 +5,22 @@ import os
 import time
 import threading
 from datetime import datetime
-from util.settings import get_calibration, save_calibration
+from util.settings import get_calibration, save_calibration, FACE_LANDMARKS_MODEL, download_face_landmarks_model
 from util.math import mid_point, distance
 
-if not os.path.exists("models/shape_predictor_68_face_landmarks.dat"):
-    print("Downloading shape_predictor_68_face_landmarks.dat...")
-    os.system("wget http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2")
-    os.system("bzip2 -dk shape_predictor_68_face_landmarks.dat.bz2")
-    os.system("mv shape_predictor_68_face_landmarks.dat models/")
-    print("Done!")
+if not os.path.exists(FACE_LANDMARKS_MODEL):
+    download_face_landmarks_model()
 
 detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor("models/shape_predictor_68_face_landmarks.dat")
+predictor = dlib.shape_predictor(FACE_LANDMARKS_MODEL)
 
 class PupileDetector:
 
     frame = None
 
-    def __init__(self):
+    def __init__(self, blink_callback = None, fixation_callback = None):
+        self.blink_callback = blink_callback
+        self.fixation_callback = fixation_callback
         self.capture_frames()
 
     def capture_frames(self):
@@ -121,7 +119,7 @@ class PupileDetector:
 
     def process_pupile(self):
 
-        start_date = None
+        blink_dates = []
 
         while True:
 
@@ -167,33 +165,33 @@ class PupileDetector:
                     left_pupile = self.get_pupile(left_eye_region)
 
                 if right_pupile is None and left_pupile is None:
-                    start_date = datetime.now()
+                    blink_dates.append(datetime.now())
+                    if len(blink_dates) > 2: blink_dates.pop(0)
 
-                if right_pupile is not None and left_pupile is not None and start_date is not None:
+                if right_pupile is not None and left_pupile is not None:
+
+                    rcx, rcy, rr = right_pupile
+                    lcx, lcy, lr = left_pupile
+
+                    rcx += right_top_left[0]
+                    rcy += right_top_left[1]
+
+                    lcx += left_top_left[0]
+                    lcy += left_top_left[1]
+
+                    rc = [int(rcx), int(rcy)]
+                    lc = [int(lcx), int(lcy)]
+
+                    # Fixation
+                    self.fixation_callback(rc, lc)
                     
-                    if (datetime.now() - start_date).seconds > 1.5:
-                        
-                        rcx, rcy, rr = right_pupile
-                        lcx, lcy, lr = left_pupile
+                    # blink
+                    if len(blink_dates) == 2 and (blink_dates[1] - blink_dates[0]).total_seconds() > 1.5:
+                        self.blink_callback(rc, lc)
+                        blink_dates = []
 
-                        rcx += right_top_left[0]
-                        rcy += right_top_left[1]
+            else:
+                
+                blink_dates = []
 
-                        lcx += left_top_left[0]
-                        lcy += left_top_left[1]
-
-                        for point in landmarks:
-                            cv.circle(self.process_frame, point, 2, (0, 255, 0), -1)
-
-                        cv.circle(self.process_frame, (rcx, rcy), 5, (0, 0, 255), -1)
-                        cv.circle(self.process_frame, (lcx, lcy), 5, (0, 0, 255), -1)
-
-                        cv.imshow("Frame", self.process_frame)
-                        if cv.waitKey(1) == ord('q'): break
-                        
-                        yield (rcx, rcy), (lcx, lcy)
-
-            time.sleep(0.1)
-
-    def get_pupile_action(self):
-        yield next(self.process_pupile())
+            time.sleep(0.05)
